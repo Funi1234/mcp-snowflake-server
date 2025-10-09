@@ -8,13 +8,15 @@ import base64
 
 import mcp.server.stdio
 import mcp.types as types
-import yaml
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from pydantic import AnyUrl, BaseModel
 
 from .db_client import SnowflakeDB
 from .write_detector import SQLWriteDetector
+from .serialization import to_yaml, to_json
+
+ResponseType = types.TextContent | types.ImageContent | types.EmbeddedResource
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,45 +26,6 @@ logging.basicConfig(
 logger = logging.getLogger("mcp_snowflake_server")
 
 
-def data_to_yaml(data: Any) -> str:
-    return yaml.dump(data, indent=2, sort_keys=False)
-
-
-# Custom serializer that checks for 'date' type
-def data_json_serializer(obj):
-    from datetime import date, datetime
-
-    try:
-        import pandas as pd
-        import numpy as np
-
-        # Handle pandas Timestamps
-        if isinstance(obj, pd.Timestamp):
-            return obj.isoformat()
-
-        # Handle pandas NaT (Not a Time)
-        if pd.isna(obj):
-            return None
-
-        # Handle numpy data types
-        if isinstance(obj, (np.integer, np.floating)):
-            return obj.item()
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-
-    except ImportError:
-        pass
-
-    # Handle Python datetime objects
-    if isinstance(obj, (date, datetime)):
-        return obj.isoformat()
-
-    # Handle None values
-    if obj is None:
-        return None
-
-    # For everything else, convert to string
-    return str(obj)
 
 
 def handle_tool_errors(func: Callable) -> Callable:
@@ -83,15 +46,12 @@ class Tool(BaseModel):
     name: str
     description: str
     input_schema: dict[str, Any]
-    handler: Callable[
-        [str, dict[str, Any] | None],
-        list[types.TextContent | types.ImageContent | types.EmbeddedResource],
-    ]
+    handler: Callable[[str, dict[str, Any] | None], list[ResponseType]]
     tags: list[str] = []
 
 
 # Tool handlers
-async def handle_list_databases(arguments, db, *_, exclusion_config=None):
+async def handle_list_databases(arguments, db, *_, exclusion_config=None, exclude_json_results=False):
     query = "SELECT DATABASE_NAME FROM INFORMATION_SCHEMA.DATABASES"
     data, data_id = await db.execute_query(query)
 
@@ -118,20 +78,22 @@ async def handle_list_databases(arguments, db, *_, exclusion_config=None):
         "data_id": data_id,
         "data": data,
     }
-    yaml_output = data_to_yaml(output)
-    json_output = json.dumps(output, default=data_json_serializer)
-    return [
-        types.TextContent(type="text", text=yaml_output),
-        types.EmbeddedResource(
-            type="resource",
-            resource=types.TextResourceContents(
-                uri=f"data://{data_id}", text=json_output, mimeType="application/json"
-            ),
-        ),
-    ]
+    yaml_output = to_yaml(output)
+    json_output = to_json(output)
+    results: list[ResponseType] = [types.TextContent(type="text", text=yaml_output)]
+    if not exclude_json_results:
+        results.append(
+            types.EmbeddedResource(
+                type="resource",
+                resource=types.TextResourceContents(
+                    uri=f"data://{data_id}", text=json_output, mimeType="application/json"
+                ),
+            )
+        )
+    return results
 
 
-async def handle_list_schemas(arguments, db, *_, exclusion_config=None):
+async def handle_list_schemas(arguments, db, *_, exclusion_config=None, exclude_json_results=False):
     if not arguments or "database" not in arguments:
         raise ValueError("Missing required 'database' parameter")
 
@@ -163,20 +125,22 @@ async def handle_list_schemas(arguments, db, *_, exclusion_config=None):
         "database": database,
         "data": data,
     }
-    yaml_output = data_to_yaml(output)
-    json_output = json.dumps(output, default=data_json_serializer)
-    return [
-        types.TextContent(type="text", text=yaml_output),
-        types.EmbeddedResource(
-            type="resource",
-            resource=types.TextResourceContents(
-                uri=f"data://{data_id}", text=json_output, mimeType="application/json"
-            ),
-        ),
-    ]
+    yaml_output = to_yaml(output)
+    json_output = to_json(output)
+    results: list[ResponseType] = [types.TextContent(type="text", text=yaml_output)]
+    if not exclude_json_results:
+        results.append(
+            types.EmbeddedResource(
+                type="resource",
+                resource=types.TextResourceContents(
+                    uri=f"data://{data_id}", text=json_output, mimeType="application/json"
+                ),
+            )
+        )
+    return results
 
 
-async def handle_list_tables(arguments, db, *_, exclusion_config=None):
+async def handle_list_tables(arguments, db, *_, exclusion_config=None, exclude_json_results=False):
     if not arguments or "database" not in arguments or "schema" not in arguments:
         raise ValueError("Missing required 'database' and 'schema' parameters")
 
@@ -211,20 +175,22 @@ async def handle_list_tables(arguments, db, *_, exclusion_config=None):
         "schema": schema,
         "data": data,
     }
-    yaml_output = data_to_yaml(output)
-    json_output = json.dumps(output, default=data_json_serializer)
-    return [
-        types.TextContent(type="text", text=yaml_output),
-        types.EmbeddedResource(
-            type="resource",
-            resource=types.TextResourceContents(
-                uri=f"data://{data_id}", text=json_output, mimeType="application/json"
-            ),
-        ),
-    ]
+    yaml_output = to_yaml(output)
+    json_output = to_json(output)
+    results: list[ResponseType] = [types.TextContent(type="text", text=yaml_output)]
+    if not exclude_json_results:
+        results.append(
+            types.EmbeddedResource(
+                type="resource",
+                resource=types.TextResourceContents(
+                    uri=f"data://{data_id}", text=json_output, mimeType="application/json"
+                ),
+            )
+        )
+    return results
 
 
-async def handle_describe_table(arguments, db, *_):
+async def handle_describe_table(arguments, db, *_, exclude_json_results=False):
     if not arguments or "table_name" not in arguments:
         raise ValueError("Missing table_name argument")
 
@@ -256,20 +222,22 @@ async def handle_describe_table(arguments, db, *_):
         "table": table_name,
         "data": data,
     }
-    yaml_output = data_to_yaml(output)
-    json_output = json.dumps(output, default=data_json_serializer)
-    return [
-        types.TextContent(type="text", text=yaml_output),
-        types.EmbeddedResource(
-            type="resource",
-            resource=types.TextResourceContents(
-                uri=f"data://{data_id}", text=json_output, mimeType="application/json"
-            ),
-        ),
-    ]
+    yaml_output = to_yaml(output)
+    json_output = to_json(output)
+    results: list[ResponseType] = [types.TextContent(type="text", text=yaml_output)]
+    if not exclude_json_results:
+        results.append(
+            types.EmbeddedResource(
+                type="resource",
+                resource=types.TextResourceContents(
+                    uri=f"data://{data_id}", text=json_output, mimeType="application/json"
+                ),
+            )
+        )
+    return results
 
 
-async def handle_read_query(arguments, db, write_detector, *_):
+async def handle_read_query(arguments, db, write_detector, *_, exclude_json_results=False):
     if not arguments or "query" not in arguments:
         raise ValueError("Missing query argument")
 
@@ -279,36 +247,27 @@ async def handle_read_query(arguments, db, write_detector, *_):
     # Execute the query (db_client handles SHOW command workaround)
     data, data_id = await db.execute_query(arguments["query"])
 
-    logger.info(f"Data: {data}")
-
-    # Create output dict and handle any bytes objects
-    processed_data = []
-    for row in data:
-        processed_row = {}
-        for key, value in row.items():
-            if isinstance(value, bytes):
-                # Use base64 to safely encode binary data
-                processed_row[key] = base64.b64encode(value).decode("ascii")
-            else:
-                processed_row[key] = value
-        processed_data.append(processed_row)
-
-    output = {"type": "data", "data_id": data_id, "data": processed_data}
-
-    yaml_output = data_to_yaml(output)
-    json_output = json.dumps(output, default=data_json_serializer)
-    return [
-        types.TextContent(type="text", text=yaml_output),
-        types.EmbeddedResource(
-            type="resource",
-            resource=types.TextResourceContents(
-                uri=f"data://{data_id}", text=json_output, mimeType="application/json"
-            ),
-        ),
-    ]
+    output = {
+        "type": "data",
+        "data_id": data_id,
+        "data": data,
+    }
+    yaml_output = to_yaml(output)
+    json_output = to_json(output)
+    results: list[ResponseType] = [types.TextContent(type="text", text=yaml_output)]
+    if not exclude_json_results:
+        results.append(
+            types.EmbeddedResource(
+                type="resource",
+                resource=types.TextResourceContents(
+                    uri=f"data://{data_id}", text=json_output, mimeType="application/json"
+                ),
+            )
+        )
+    return results
 
 
-async def handle_append_insight(arguments, db, _, __, server):
+async def handle_append_insight(arguments, db, _, __, server, exclude_json_results=False):
     if not arguments or "insight" not in arguments:
         raise ValueError("Missing insight argument")
 
@@ -319,7 +278,7 @@ async def handle_append_insight(arguments, db, _, __, server):
     return [types.TextContent(type="text", text="Insight added to memo")]
 
 
-async def handle_write_query(arguments, db, _, allow_write, __):
+async def handle_write_query(arguments, db, _, allow_write, __, **___):
     if not allow_write:
         raise ValueError("Write operations are not allowed for this data connection")
     if arguments["query"].strip().upper().startswith("SELECT"):
@@ -329,7 +288,7 @@ async def handle_write_query(arguments, db, _, allow_write, __):
     return [types.TextContent(type="text", text=str(results))]
 
 
-async def handle_create_table(arguments, db, _, allow_write, __):
+async def handle_create_table(arguments, db, _, allow_write, __, **___):
     if not allow_write:
         raise ValueError("Write operations are not allowed for this data connection")
     if not arguments["query"].strip().upper().startswith("CREATE TABLE"):
@@ -386,6 +345,7 @@ async def main(
     exclude_tools: list[str] = [],
     config_file: str = "runtime_config.json",
     exclude_patterns: dict = None,
+    exclude_json_results: bool = False,
 ):
     # Setup logging
     if log_dir:
@@ -439,7 +399,7 @@ async def main(
     write_detector = SQLWriteDetector()
 
     tables_info = (await prefetch_tables(db, connection_args)) if prefetch else {}
-    tables_brief = data_to_yaml(tables_info) if prefetch else ""
+    tables_brief = to_yaml(tables_info) if prefetch else ""
 
     all_tools = [
         Tool(
@@ -598,7 +558,7 @@ async def main(
         elif str(uri).startswith("context://table"):
             table_name = str(uri).split("/")[-1]
             if table_name in tables_info:
-                return data_to_yaml(tables_info[table_name])
+                return to_yaml(tables_info[table_name])
             else:
                 raise ValueError(f"Unknown table: {table_name}")
         else:
@@ -616,9 +576,7 @@ async def main(
 
     @server.call_tool()
     @handle_tool_errors
-    async def handle_call_tool(
-        name: str, arguments: dict[str, Any] | None
-    ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[ResponseType]:
         if name in exclude_tools:
             return [
                 types.TextContent(
@@ -642,9 +600,17 @@ async def main(
                 allow_write,
                 server,
                 exclusion_config=exclusion_config,
+                exclude_json_results=exclude_json_results,
             )
         else:
-            return await handler(arguments, db, write_detector, allow_write, server)
+            return await handler(
+                arguments,
+                db,
+                write_detector,
+                allow_write,
+                server,
+                exclude_json_results=exclude_json_results,
+            )
 
     @server.list_tools()
     async def handle_list_tools() -> list[types.Tool]:
