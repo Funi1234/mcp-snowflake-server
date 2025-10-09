@@ -26,8 +26,6 @@ logging.basicConfig(
 logger = logging.getLogger("mcp_snowflake_server")
 
 
-
-
 def handle_tool_errors(func: Callable) -> Callable:
     """Decorator to standardize tool error handling"""
 
@@ -51,7 +49,9 @@ class Tool(BaseModel):
 
 
 # Tool handlers
-async def handle_list_databases(arguments, db, *_, exclusion_config=None, exclude_json_results=False):
+async def handle_list_databases(
+    arguments, db, *_, exclusion_config=None, exclude_json_results=False
+):
     query = "SELECT DATABASE_NAME FROM INFORMATION_SCHEMA.DATABASES"
     data, data_id = await db.execute_query(query)
 
@@ -86,14 +86,18 @@ async def handle_list_databases(arguments, db, *_, exclusion_config=None, exclud
             types.EmbeddedResource(
                 type="resource",
                 resource=types.TextResourceContents(
-                    uri=f"data://{data_id}", text=json_output, mimeType="application/json"
+                    uri=f"data://{data_id}",
+                    text=json_output,
+                    mimeType="application/json",
                 ),
             )
         )
     return results
 
 
-async def handle_list_schemas(arguments, db, *_, exclusion_config=None, exclude_json_results=False):
+async def handle_list_schemas(
+    arguments, db, *_, exclusion_config=None, exclude_json_results=False
+):
     if not arguments or "database" not in arguments:
         raise ValueError("Missing required 'database' parameter")
 
@@ -133,14 +137,18 @@ async def handle_list_schemas(arguments, db, *_, exclusion_config=None, exclude_
             types.EmbeddedResource(
                 type="resource",
                 resource=types.TextResourceContents(
-                    uri=f"data://{data_id}", text=json_output, mimeType="application/json"
+                    uri=f"data://{data_id}",
+                    text=json_output,
+                    mimeType="application/json",
                 ),
             )
         )
     return results
 
 
-async def handle_list_tables(arguments, db, *_, exclusion_config=None, exclude_json_results=False):
+async def handle_list_tables(
+    arguments, db, *_, exclusion_config=None, exclude_json_results=False
+):
     if not arguments or "database" not in arguments or "schema" not in arguments:
         raise ValueError("Missing required 'database' and 'schema' parameters")
 
@@ -183,7 +191,9 @@ async def handle_list_tables(arguments, db, *_, exclusion_config=None, exclude_j
             types.EmbeddedResource(
                 type="resource",
                 resource=types.TextResourceContents(
-                    uri=f"data://{data_id}", text=json_output, mimeType="application/json"
+                    uri=f"data://{data_id}",
+                    text=json_output,
+                    mimeType="application/json",
                 ),
             )
         )
@@ -230,14 +240,18 @@ async def handle_describe_table(arguments, db, *_, exclude_json_results=False):
             types.EmbeddedResource(
                 type="resource",
                 resource=types.TextResourceContents(
-                    uri=f"data://{data_id}", text=json_output, mimeType="application/json"
+                    uri=f"data://{data_id}",
+                    text=json_output,
+                    mimeType="application/json",
                 ),
             )
         )
     return results
 
 
-async def handle_read_query(arguments, db, write_detector, *_, exclude_json_results=False):
+async def handle_read_query(
+    arguments, db, write_detector, *_, exclude_json_results=False
+):
     if not arguments or "query" not in arguments:
         raise ValueError("Missing query argument")
 
@@ -260,14 +274,18 @@ async def handle_read_query(arguments, db, write_detector, *_, exclude_json_resu
             types.EmbeddedResource(
                 type="resource",
                 resource=types.TextResourceContents(
-                    uri=f"data://{data_id}", text=json_output, mimeType="application/json"
+                    uri=f"data://{data_id}",
+                    text=json_output,
+                    mimeType="application/json",
                 ),
             )
         )
     return results
 
 
-async def handle_append_insight(arguments, db, _, __, server, exclude_json_results=False):
+async def handle_append_insight(
+    arguments, db, _, __, server, exclude_json_results=False
+):
     if not arguments or "insight" not in arguments:
         raise ValueError("Missing insight argument")
 
@@ -576,7 +594,9 @@ async def main(
 
     @server.call_tool()
     @handle_tool_errors
-    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[ResponseType]:
+    async def handle_call_tool(
+        name: str, arguments: dict[str, Any] | None
+    ) -> list[ResponseType]:
         if name in exclude_tools:
             return [
                 types.TextContent(
