@@ -33,7 +33,9 @@ class SnowflakeDB:
 
             # Set initial warehouse if provided, but don't set database or schema
             if "warehouse" in self.connection_config:
-                self.session.sql(f"USE WAREHOUSE {self.connection_config['warehouse'].upper()}")
+                self.session.sql(
+                    f"USE WAREHOUSE {self.connection_config['warehouse'].upper()}"
+                )
 
             self.auth_time = time.time()
         except Exception as e:
@@ -52,16 +54,31 @@ class SnowflakeDB:
         if self.init_task and not self.init_task.done():
             await self.init_task
         # If session doesn't exist or has expired, initialize it and wait
-        elif not self.session or time.time() - self.auth_time > self.AUTH_EXPIRATION_TIME:
+        elif (
+            not self.session or time.time() - self.auth_time > self.AUTH_EXPIRATION_TIME
+        ):
             await self._init_database()
 
         logger.debug(f"Executing query: {query}")
+        logger.info(f"Processing query: {query}")  # Add info level logging
         try:
-            result = self.session.sql(query).to_pandas()
-            result_rows = result.to_dict(orient="records")
-            data_id = str(uuid.uuid4())
-
-            return result_rows, data_id
+            # Check if this is a SHOW command and use RESULT_SCAN workaround
+            if query.strip().upper().startswith("SHOW"):
+                logger.info("Detected SHOW command, using RESULT_SCAN workaround")
+                # Execute the SHOW command first (need to collect to actually execute)
+                self.session.sql(query).collect()
+                # Use RESULT_SCAN to get the results (this avoids pandas column mismatch issues)
+                result_scan_query = "SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"
+                result = self.session.sql(result_scan_query).to_pandas()
+                result_rows = result.to_dict(orient="records")
+                data_id = str(uuid.uuid4())
+                return result_rows, data_id
+            else:
+                # Regular query processing
+                result = self.session.sql(query).to_pandas()
+                result_rows = result.to_dict(orient="records")
+                data_id = str(uuid.uuid4())
+                return result_rows, data_id
 
         except Exception as e:
             logger.error(f'Database error executing "{query}": {e}')
