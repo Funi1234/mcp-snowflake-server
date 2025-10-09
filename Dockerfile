@@ -15,13 +15,6 @@ COPY README.md .
 COPY runtime_config.json .
 COPY src/ src/
 
-# Install required packages for private key authentication
-RUN pip install --no-cache-dir \
-    cryptography \
-    python-dotenv \
-    snowflake-connector-python \
-    snowflake-snowpark-python
-
 # Install project dependencies
 RUN pip install --no-cache-dir .
 
@@ -33,4 +26,3 @@ RUN mkdir -p /app/logs
 
 # Set the entrypoint to handle all arguments
 ENTRYPOINT ["mcp_snowflake_server"]
-
